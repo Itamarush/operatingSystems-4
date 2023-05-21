@@ -1,17 +1,42 @@
 #include "reactorServer.h"
-#include <sys/poll.h>
-#include <pthread.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <signal.h>
+
+int main(void)
+{
+    preactor_t pReactor;
+    int listener;
+    int newfd;
+    struct sockaddr_storage remoteaddr;
+    socklen_t addrlen;
+    printf("listener: waiting for connections...\n");
+    listener = setup_server_socket();
+
+    if (listener == -1)
+    {
+        printf("error getting listening socket\n");
+        exit(1);
+    }
+
+    else if (listener > 0)
+    {
+        printf("listening...");
+    }
+
+    pReactor = createReactor(3, listener);
+
+    handler_t clientHandler;
+    clientHandler.arg = NULL;
+    clientHandler.handler = &handle_client;
+    addFd(pReactor, listener, clientHandler.handler);
+    startReactor(pReactor);
+    printf("Reactor is running to stop the programm use CTRL+C\n");
+
+    while (pReactor->isActive)
+    {
+        sleep(1); // zzzzzzzz
+    }
+
+    return 0;
+}
 
 int setup_server_socket(void) {
     struct addrinfo hints, *addr_info_list, *addr_info;
@@ -51,7 +76,8 @@ int setup_server_socket(void) {
             continue;
         }
 
-        // Successfully bound, stop looping
+        printf("Successfully bind, stop looping");
+        fflush(stdout);
         break;
     }
 
@@ -67,6 +93,150 @@ int setup_server_socket(void) {
         return -1;
     }
 
-    // Everything is set up and we can return the server socket
+    printf("Everything is set up and we can return the server socket");
+    fflush(stdout);
     return server_socket;
+}
+
+// void process_connection(preactor_t reactor, void *context)
+// {
+//     struct sockaddr_storage client_addr; 
+//     socklen_t addr_len;
+//     char client_IP[INET6_ADDRSTRLEN];
+//     int client_socket;
+
+//     addr_len = sizeof client_addr;
+//     client_socket = accept(reactor->currentlyListen, (struct sockaddr *)&client_addr, &addr_len);
+    
+//     if (client_socket == -1)
+//     {
+//         perror("error during accept");
+//     }
+//     else
+//     {
+//         printf("server: established connection with %s on "
+//                "socket %d\n",
+        
+//                inet_ntop(client_addr.ss_family,
+//                 get_in_addr((struct sockaddr *)&client_addr),
+//                 client_IP, INET6_ADDRSTRLEN),
+//                 client_socket);
+//         handler_t new_handler;
+//         new_handler.arg = NULL;
+//         new_handler.handler = &handle_client;
+//         addFd(reactor, client_socket, new_handler.handler);
+//     }
+// }
+
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET)
+    {
+        return &(((struct sockaddr_in *)sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6 *)sa)->sin6_addr);
+}
+
+// void handle_client(preactor_t reactor, int socket_fd, void *context)
+// {
+//     char buffer[BUFF_SIZE] = {0};
+//     int num_received;
+//     printf("\nthe soc: %d", socket_fd);
+//     fflush(stdout);
+//     num_received = recv(socket_fd, buffer, BUFF_SIZE, 0);
+//     if (num_received <= 0)
+//     {
+//         if (num_received == 0)
+//         {
+//             printf("server: socket %d disconnected\n", socket_fd);
+//         }
+//         else
+//         {
+//             printf("error during recv");
+//         }
+//         close(socket_fd);
+//         deleteFd(reactor, socket_fd);
+//     }
+//     else
+//     {
+//         printf("server: socket %d received message: %s", socket_fd, buffer);
+        
+//         // Broadcast the message to all other clients
+//         for (int i = 0; i < reactor->counter; i++)
+//         {
+//             if (reactor->fds[i].fd != socket_fd && reactor->fds[i].fd != reactor->currentlyListen)
+//             {
+//                 if (send(reactor->fds[i].fd, buffer, num_received, 0) == -1)
+//                 {
+//                     perror("error during send");
+//                 }
+//             }
+//         }
+//         printf("Message successfully broadcasted to all clients\n");
+//     }
+// }
+
+void process_connection(preactor_t reactor, void *arg)
+{
+    struct sockaddr_storage remoteaddr; // Client address
+    socklen_t addrlen;
+    char remoteIP[INET6_ADDRSTRLEN];
+    int newfd; // Newly accepted socket descriptor
+
+    addrlen = sizeof remoteaddr;
+    newfd = accept(reactor->currentlyListen, (struct sockaddr *)&remoteaddr, &addrlen); // Accept the incoming connection
+    if (newfd == -1)
+    {
+        perror("accept");
+    }
+    else
+    {
+        printf("server: new connection from %s on "
+               "socket %d\n",
+               inet_ntop(remoteaddr.ss_family,
+                         get_in_addr((struct sockaddr *)&remoteaddr),
+                         remoteIP, INET6_ADDRSTRLEN),
+               newfd);
+        handler_t cHandler;
+        cHandler.arg = NULL;
+        cHandler.handler = &handle_client;
+        addFd(reactor, newfd, &handle_client);
+    }
+}
+void handle_client(preactor_t reactor, int client_fd, void *arg)
+{
+    char buf[BUFF_SIZE] = {0};
+    int nbytes;
+
+    nbytes = recv(client_fd, buf, BUFF_SIZE, 0);
+    if (nbytes <= 0)
+    {
+        if (nbytes == 0)
+        {
+            printf("server: socket %d hung up\n", client_fd);
+        }
+        else
+        {
+            perror("recv");
+        }
+        close(client_fd);
+        deleteFd(reactor, client_fd);
+    }
+    else
+    {
+        // send to all clients
+        printf("server: socket %d got message: %s", client_fd, buf);
+        for (int i = 0; i < reactor->counter; i++)
+        {
+            if (reactor->fds[i].fd != client_fd && reactor->fds[i].fd != reactor->currentlyListen)
+            {
+                if (send(reactor->fds[i].fd, buf, nbytes, 0) == -1)
+                {
+                    perror("send");
+                }
+            }
+        }
+        printf("message sent to all clients\n");
+    }
 }
