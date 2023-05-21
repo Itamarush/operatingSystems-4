@@ -1,7 +1,7 @@
 #include <sys/poll.h>
 #include <pthread.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -11,37 +11,36 @@
 #include <netdb.h>
 #include <signal.h>
 
-typedef struct reactor_t *preactor_t;
 
-typedef void (*handler_func_t)(preactor_t, int, void*);
-
+typedef struct reactorStruct* pReactor;
 typedef struct {
-    handler_func_t handler;
+    void (*handler)(pReactor, int, void*);
     void* arg;
-} handler_t, *phandler_t;
+} handlerStruct, *pHandler;
 
-typedef struct event_handler_t {
-    int fd;
-    void* arg;
-    handler_func_t handler;
-} event_handler_t;
-
-typedef struct reactor_t {
+typedef struct reactorStruct
+{
+    pHandler* handlers;
     struct pollfd* fds;
-    event_handler_t** handlers;
-    int counter;
-    int isActive;
+    int count; 
     int size;
+    int isRunning;
     int currentlyListen;
     pthread_t thread;
-} reactor_t; // preactor_t is already defined, no need to redefine it here
+}reactorStruct, *pReactor;
 
-preactor_t createReactor(int size,int listenerFd);
-void stopReactor(preactor_t reactor);
-void startReactor(preactor_t reactor);
-void *runReactor(void *arg);
-void addFd(preactor_t reactor, int fd, handler_func_t handler);
-void waitFor(preactor_t reactor);
-void deleteReactor(preactor_t reactor);
-void deleteFd(preactor_t reactor, int fd);
-int findFd(preactor_t reactor, int fd);
+pReactor createReactor(int, int);
+void stopReactor(pReactor);
+void startReactor(pReactor);
+void* runReactor(void*);
+void addFd(pReactor, int, handlerStruct);
+void waitFor(pReactor);
+void deleteReactor(pReactor);
+void deleteFd(pReactor, int);
+int findFd(pReactor, int);
+void handleRealloc(pReactor);
+void addHandlerAndFd(pReactor, int, handlerStruct);
+void shiftElementsDown(pReactor, int);
+void freeFds(pReactor);
+void freeHandlers(pReactor);
+

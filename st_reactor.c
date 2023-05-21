@@ -1,144 +1,98 @@
 #include "st_reactor.h"
+#include <stdlib.h>
 
-void addFd(preactor_t reactor, int fd, handler_func_t handler)
+pReactor createReactor(int size, int listen)
 {
-    if (reactor->counter < reactor->size)
-    {
-        reactor->handlers[reactor->counter] = malloc(sizeof(event_handler_t));
-        reactor->handlers[reactor->counter]->handler = handler;
-        reactor->handlers[reactor->counter]->arg = handler;
-        reactor->fds[reactor->counter].fd = fd;
-        reactor->fds[reactor->counter].events = POLLIN;
-        reactor->counter++;
-    }
-    else
-    {
-        reactor->handlers = (event_handler_t **)realloc(reactor->handlers, reactor->size * 2 * sizeof(event_handler_t *));
-        reactor->fds = (struct pollfd *)realloc(reactor->fds, reactor->size * 2 * sizeof(struct pollfd));
-        reactor->size *= 2;
-        addFd(reactor, fd, handler);
-    }
-}
-
-preactor_t createReactor(int size, int listenerFd) 
-{
-    preactor_t reactor = malloc(sizeof(reactor_t));
-    reactor->fds = malloc(size * sizeof(struct pollfd));
-    reactor->handlers = malloc(size * sizeof(phandler_t));
-    reactor->counter = 0;
+    pReactor reactor = (pReactor)malloc(sizeof(reactorStruct));
+    reactor->handlers = (pHandler *)malloc(size * sizeof(pHandler));
+    reactor->fds = (struct pollfd *)malloc(size * sizeof(struct pollfd));
+    reactor->count = 0;
     reactor->size = size;
-    reactor->isActive = 0;
-    reactor->currentlyListen = listenerFd;
+    reactor->isRunning = 0;
+    reactor->currentlyListen = listen;
     return reactor;
 }
 
-void stopReactor(preactor_t reactor)
+void stopReactor(pReactor reactor)
 {
-    if (reactor == NULL)
-	{
-		printf("stopReactor() failed: \n");
-		return;
-	}
-
-    else if (reactor->isActive == 0)
-	{
-		printf("The reactor is already not running. \n");
-		return;
-	}
-
-    reactor->isActive = 0;
-    waitFor(reactor);
-    return;
-}
-
-void waitFor(preactor_t reactor)
-{
-    if (reactor != NULL && !(reactor->isActive))
+    if (reactor != NULL)
     {
-        pthread_join(reactor->thread, NULL);
+        reactor->isRunning = 0;
+        waitFor(reactor);
     }
-    
 }
 
-void startReactor(preactor_t reactor)
+void startReactor(pReactor reactor)
 {
-    if (!(reactor->isActive) && (reactor))
+    if (!reactor->isRunning)
     {
-        reactor->isActive = 1;
+        reactor->isRunning = 1;
         pthread_create(&reactor->thread, NULL, runReactor, reactor);
-    }
-}
-
-void processEvent(preactor_t reactor, int i) {
-    if (reactor->fds[i].revents & POLLIN) {
-        reactor->handlers[i]->handler(reactor, reactor->fds[i].fd, reactor->handlers[i]->arg);
-    }
-}
-
-void processEvents(preactor_t reactor, int numEvents) {
-    int currCount = reactor->counter;
-    for (int i = 0; i < currCount; i++) {
-        processEvent(reactor, i);
     }
 }
 
 void *runReactor(void *arg)
 {
-    preactor_t reactor = (preactor_t)arg;
+    pReactor reactor = (pReactor)arg;
+    pHandler handler;
+    struct pollfd *fd;
 
-    while (reactor->isActive)
+    while (reactor->isRunning)
     {
-        int numEvents = poll(reactor->fds, reactor->counter, -1);
-        if (numEvents > 0) {
-            processEvents(reactor, numEvents);
-        }
-    }
+        if (poll(reactor->fds, reactor->count, -1) <= 0) continue;
 
-    return NULL;
-}
+        for (int i = 0; i < reactor->count; i++)
+        {
+            fd = &(reactor->fds[i]);
+            handler = reactor->handlers[i];
 
-void deleteFd(preactor_t reactor, int fd)
-{
-    int index = findFd(reactor, fd);
-    if (index != -1)
-    {
-        free(reactor->handlers[index]);
-        for (int i = index; i < reactor->counter - 1; i++)
-        {
-            reactor->handlers[i] = reactor->handlers[i + 1];
-            reactor->fds[i] = reactor->fds[i + 1];
-        }
-        reactor->counter--;
-    }
-}
-
-void deleteReactor(preactor_t reactor)
-{
-    if (reactor != NULL)
-    {
-        if (reactor->isActive)
-        {
-            stopReactor(reactor);
-        }
-        if (reactor->handlers != NULL)
-        {
-            for (int i = 0; i < reactor->counter; i++)
+            if (fd->revents & POLLIN)
             {
-                free(reactor->handlers[i]);
+                handler->handler(reactor, fd->fd, handler->arg);
             }
-            free(reactor->handlers);
         }
-        if (reactor->fds != NULL)
-        {
-            free(reactor->fds);
-        }
-        free(reactor);
     }
 }
 
-int findFd(preactor_t reactor, int fd)
+
+void handleRealloc(pReactor reactor)
 {
-    for (int i = 0; i < reactor->counter; i++)
+    reactor->handlers = (pHandler *)realloc(reactor->handlers, reactor->size * 2 * sizeof(pHandler));
+    reactor->fds = (struct pollfd *)realloc(reactor->fds, reactor->size * 2 * sizeof(struct pollfd));
+    reactor->size *= 2;
+}
+
+void addHandlerAndFd(pReactor reactor, int fd, handlerStruct handler)
+{
+    int count = reactor->count;
+    reactor->handlers[count] = (pHandler)malloc(sizeof(handlerStruct));
+    reactor->handlers[count]->handler = handler.handler;
+    reactor->handlers[count]->arg = handler.arg;
+    reactor->fds[count].fd = fd;
+    reactor->fds[count].events = POLLIN;
+    reactor->count++;
+}
+
+void addFd(pReactor reactor, int fd, handlerStruct handler)
+{
+    if (reactor->count >= reactor->size)
+    {
+        handleRealloc(reactor);
+    }
+    
+    addHandlerAndFd(reactor, fd, handler);
+}
+
+
+void waitFor(pReactor reactor)
+{
+    if(reactor && !reactor->isRunning)
+        pthread_join(reactor->thread, NULL);
+}
+
+int findFd(pReactor reactor, int fd)
+{
+    for (int i = 0; i < reactor->count; i++)
     {
         if (reactor->fds[i].fd == fd)
         {
@@ -146,4 +100,59 @@ int findFd(preactor_t reactor, int fd)
         }
     }
     return -1;
+}
+
+void shiftElementsDown(pReactor reactor, int startIndex) 
+{
+    for (int i = startIndex; i < reactor->count - 1; i++)
+    {
+        reactor->handlers[i] = reactor->handlers[i + 1];
+        reactor->fds[i] = reactor->fds[i + 1];
+    }
+    reactor->count--;
+}
+
+void deleteFd(pReactor reactor, int fd)
+{
+    int index = findFd(reactor, fd);
+    if (index != -1)
+    {
+        free(reactor->handlers[index]);
+        shiftElementsDown(reactor, index);
+    }
+}
+
+void freeHandlers(pReactor reactor) 
+{
+    if (reactor->handlers != NULL)
+    {
+        for (int i = 0; i < reactor->count; i++)
+        {
+            free(reactor->handlers[i]);
+        }
+        free(reactor->handlers);
+    }
+}
+
+void freeFds(pReactor reactor)
+{
+    if (reactor->fds != NULL)
+    {
+        free(reactor->fds);
+    }
+}
+
+void deleteReactor(pReactor reactor)
+{
+    if (reactor == NULL) return;
+
+    if (reactor->isRunning)
+    {
+        stopReactor(reactor);
+    }
+
+    freeHandlers(reactor);
+    freeFds(reactor);
+    
+    free(reactor);
 }

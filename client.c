@@ -1,7 +1,3 @@
-/*
-** client.c -- a stream socket client demo
-*/
-
 #include <stdio.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -15,11 +11,10 @@
 
 #include <arpa/inet.h>
 
-#define PORT "9034" // the port client will be connecting to
+#define PORT "9034"
 
-#define MAXDATASIZE 100 // max number of bytes we can get at once
+#define MAXDATASIZE 100
 
-// get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET)
@@ -54,7 +49,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // loop through all the results and connect to the first we can
+
     for (p = servinfo; p != NULL; p = p->ai_next)
     {
         if ((sockfd = socket(p->ai_family, p->ai_socktype,
@@ -84,10 +79,9 @@ int main(int argc, char *argv[])
               s, sizeof s);
     printf("client: connecting to %s\n", s);
 
-    freeaddrinfo(servinfo); // all done with this structure
+    freeaddrinfo(servinfo);
     struct pollfd pfds[2];
-    printf("\nthe sock is: %d", sockfd);
-    pfds[0].fd = 0; // Stdin
+    pfds[0].fd = 0;
     pfds[0].events = POLLIN;
     pfds[1].fd = sockfd;
     pfds[1].events = POLLIN;
@@ -104,8 +98,6 @@ int main(int argc, char *argv[])
             numbytes = recv(sockfd, buf, MAXDATASIZE - 1, 0);
             if (numbytes <= 0)
             {
-                printf("\nthe numbytes is: %d", numbytes);
-                fflush(stdout);
                 break;
             }
             buf[numbytes] = 0;
